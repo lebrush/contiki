@@ -41,8 +41,10 @@
 #include "dev/ioc.h"
 #include "dev/gpio.h"
 #include "dev/uart.h"
+#include "lpm.h"
 #include "reg.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -96,9 +98,19 @@ reset(void)
   REG(UART_BASE | UART_CTL) |= UART_CTL_UARTEN;
 }
 /*---------------------------------------------------------------------------*/
+static bool
+permit_pm1(void)
+{
+  /* Note: UART_FR.TXFE reads 0 if the UART clock is gated. */
+  return (REG(SYS_CTRL_RCGCUART) & SYS_CTRL_RCGCUART_UART) == 0 ||
+         (REG(UART_BASE | UART_FR) & UART_FR_TXFE) != 0;
+}
+/*---------------------------------------------------------------------------*/
 void
 uart_init(void)
 {
+  lpm_register_peripheral(permit_pm1);
+
   /* Enable clock for the UART while Running, in Sleep and Deep Sleep */
   REG(SYS_CTRL_RCGCUART) |= SYS_CTRL_RCGCUART_UART;
   REG(SYS_CTRL_SCGCUART) |= SYS_CTRL_SCGCUART_UART;
@@ -125,8 +137,9 @@ uart_init(void)
   ioc_set_sel(UART_TX_PORT, UART_TX_PIN, IOC_PXX_SEL_UART_TXD);
   ioc_set_over(UART_TX_PORT, UART_TX_PIN, IOC_OVERRIDE_OE);
 
-  /* Set PA[1:0] to peripheral mode */
-  REG(GPIO_A_BASE | GPIO_AFSEL) |= (0x00000002 | 0x00000001);
+  /* Set RX and TX pins to peripheral mode */
+  GPIO_PERIPHERAL_CONTROL(GPIO_PORT_TO_BASE(UART_TX_PORT), GPIO_PIN_MASK(UART_TX_PIN));
+  GPIO_PERIPHERAL_CONTROL(GPIO_PORT_TO_BASE(UART_RX_PORT), GPIO_PIN_MASK(UART_RX_PIN));
 
   /*
    * UART Interrupt Masks:
